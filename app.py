@@ -84,13 +84,14 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
 
                 breedte_mm = int(match.group("breedte"))
                 hoogte_mm = int(match.group("hoogte"))
-                factuur_prijs = float(match.group("prijs").replace(",", "."))
+                factuur_prijs = round(
+                    float(match.group("prijs").replace(",", ".")), 2
+                )
 
                 stof_raw = match.group("stof")
                 stof_norm = normaliseer_stof(stof_raw)
 
                 matrix_path = matrix_files.get(stof_norm)
-
                 if not matrix_path:
                     continue
 
@@ -138,6 +139,7 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                     "Ring (€)": plooi_prijzen["Ring"],
 
                     "Gekozen plooi": beste_plooi,
+                    "Factuurprijs (€)": factuur_prijs,
                     "Verschil (€)": beste_verschil,
                 })
 

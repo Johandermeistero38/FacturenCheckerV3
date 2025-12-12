@@ -11,7 +11,7 @@ from io import BytesIO
 # =========================
 st.set_page_config(page_title="FacturenCheckerV3", layout="wide")
 st.title("FacturenCheckerV3")
-st.subheader("Stap A.6 – TOPPOINT volledige prijscontrole")
+st.subheader("Stap A.7 – TOPPOINT prijscontrole (uitgebreid)")
 
 # =========================
 # Config
@@ -24,6 +24,8 @@ LINE_REGEX = re.compile(
     r"(?P<stof>.+?)\s+\d+\s+(?P<prijs>\d+,\d+)"
 )
 
+PLOOIEN = ["Enkele plooi", "Dubbele plooi", "Wave plooi", "Ring"]
+
 # =========================
 # Helpers
 # =========================
@@ -33,37 +35,13 @@ def prijs_cm_van_mm(mm: int) -> int:
 
 
 def normaliseer_stof(tekst: str) -> str:
-    """
-    Stof = alles vóór het eerste cijfer
-    'inbetween' en varianten worden genegeerd
-    """
     tekst = tekst.lower()
-
-    # verwijder bekende voorvoegsels
-    tekst = tekst.replace("inbetween", "")
-    tekst = tekst.replace("in between", "")
-
-    # alles vóór eerste cijfer
+    tekst = tekst.replace("inbetween", "").replace("in between", "")
     tekst = re.split(r"\d", tekst)[0]
-
     return tekst.strip()
 
 
-def status_icon(verschil: float | None) -> str:
-    if verschil is None:
-        return "❓"
-    if abs(verschil) < 0.01:
-        return "✅"
-    elif verschil > 0:
-        return "🔴"
-    else:
-        return "🟢"
-
-
 def laad_matrix_bestanden():
-    """
-    Laadt alle price matrices uit de TOPPOINT map
-    """
     matrices = {}
     for file in BASE_DIR.glob("*price matrix.xlsx"):
         naam = file.stem.replace(" price matrix", "").lower()
@@ -113,21 +91,7 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
 
                 matrix_path = matrix_files.get(stof_norm)
 
-                # Geen matrix gevonden
                 if not matrix_path:
-                    rows.append({
-                        "Originele regel": line,
-                        "Stof": stof_raw,
-                        "Matrix": None,
-                        "Breedte prijs (cm)": None,
-                        "Hoogte prijs (cm)": None,
-                        "Gekozen plooi": None,
-                        "Factuurprijs (€)": round(factuur_prijs, 2),
-                        "Matrixprijs (€)": None,
-                        "Verschil (€)": None,
-                        "Status": status_icon(None),
-                        "Matrix gevonden": False
-                    })
                     continue
 
                 matrices = laad_matrix_sheets(matrix_path)
@@ -135,34 +99,46 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                 b_cm = prijs_cm_van_mm(breedte_mm)
                 h_cm = prijs_cm_van_mm(hoogte_mm)
 
-                beste_plooi = None
-                beste_prijs = None
-                beste_verschil = None
+                plooi_prijzen = {}
+                plooi_verschillen = {}
 
-                for plooi, df in matrices.items():
-                    if h_cm not in df.index or b_cm not in df.columns:
+                for plooi in PLOOIEN:
+                    df = matrices.get(plooi)
+                    if df is None or h_cm not in df.index or b_cm not in df.columns:
+                        plooi_prijzen[plooi] = None
+                        plooi_verschillen[plooi] = None
                         continue
 
-                    matrix_prijs = float(df.loc[h_cm, b_cm])
-                    verschil = round(factuur_prijs - matrix_prijs, 2)
+                    prijs = round(float(df.loc[h_cm, b_cm]), 2)
+                    verschil = round(factuur_prijs - prijs, 2)
 
+                    plooi_prijzen[plooi] = prijs
+                    plooi_verschillen[plooi] = verschil
+
+                beste_plooi = None
+                beste_verschil = None
+
+                for plooi, verschil in plooi_verschillen.items():
+                    if verschil is None:
+                        continue
                     if beste_verschil is None or abs(verschil) < abs(beste_verschil):
                         beste_plooi = plooi
-                        beste_prijs = round(matrix_prijs, 2)
                         beste_verschil = verschil
 
                 rows.append({
                     "Originele regel": line,
-                    "Stof": stof_raw,
+                    "Stof": stof_norm.capitalize(),
                     "Matrix": matrix_path.name,
                     "Breedte prijs (cm)": b_cm,
                     "Hoogte prijs (cm)": h_cm,
+
+                    "Enkele plooi (€)": plooi_prijzen["Enkele plooi"],
+                    "Dubbele plooi (€)": plooi_prijzen["Dubbele plooi"],
+                    "Wave plooi (€)": plooi_prijzen["Wave plooi"],
+                    "Ring (€)": plooi_prijzen["Ring"],
+
                     "Gekozen plooi": beste_plooi,
-                    "Factuurprijs (€)": round(factuur_prijs, 2),
-                    "Matrixprijs (€)": beste_prijs,
                     "Verschil (€)": beste_verschil,
-                    "Status": status_icon(beste_verschil),
-                    "Matrix gevonden": True
                 })
 
     # =========================

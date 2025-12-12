@@ -47,8 +47,6 @@ for filename in os.listdir(MATRIX_DIR):
         key = filename.lower().replace(" price matrix.xlsx", "").strip()
         matrices[key] = os.path.join(MATRIX_DIR, filename)
 
-st.subheader("Beschikbare TOPPOINT matrices")
-st.write(sorted(matrices.keys()))
 
 # -------------------------------------------------
 # Factuur upload

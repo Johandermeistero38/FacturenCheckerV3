@@ -2,15 +2,15 @@ import streamlit as st
 import pdfplumber
 import re
 import math
+import pandas as pd
 
 st.title("FacturenCheckerV3")
 
-st.write("Stap 6: Stof normaliseren (Cosa)")
+st.write("Stap 7: Cosa prijsmatrix matchen")
 
-uploaded_file = st.file_uploader(
-    "Upload een factuur (PDF)",
-    type=["pdf"]
-)
+# Uploads
+uploaded_pdf = st.file_uploader("Upload een factuur (PDF)", type=["pdf"])
+uploaded_matrix = st.file_uploader("Upload Cosa prijsmatrix (Excel)", type=["xlsx"])
 
 LINE_REGEX = re.compile(
     r"GORDIJN Curtain\s+"
@@ -26,17 +26,25 @@ def prijs_cm_van_mm(mm: int) -> int:
     return math.ceil(cm_naar_boven / 10) * 10
 
 def normaliseer_stof(stof_raw: str) -> str:
-    # Jouw business rule
-    if stof_raw.lower().startswith("cosa"):
-        return "Cosa"
-    return stof_raw
+    return "Cosa" if stof_raw.lower().startswith("cosa") else stof_raw
 
-if uploaded_file is not None:
-    st.success("PDF succesvol geüpload")
+if uploaded_pdf and uploaded_matrix:
+    st.success("PDF en matrix succesvol geüpload")
+
+    # Matrix inlezen
+    sheet_name = st.selectbox(
+        "Kies Cosa matrix sheet",
+        options=pd.ExcelFile(uploaded_matrix).sheet_names
+    )
+
+    matrix_df = pd.read_excel(uploaded_matrix, sheet_name=sheet_name)
+
+    # Eerste kolom = hoogte
+    matrix_df = matrix_df.rename(columns={matrix_df.columns[0]: "Hoogte"}).set_index("Hoogte")
 
     rows = []
 
-    with pdfplumber.open(uploaded_file) as pdf:
+    with pdfplumber.open(uploaded_pdf) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if not text:
@@ -48,16 +56,21 @@ if uploaded_file is not None:
                     if match:
                         breedte_mm = int(match.group("breedte"))
                         hoogte_mm = int(match.group("hoogte"))
-                        stof_raw = match.group("stof")
+
+                        breedte_cm = prijs_cm_van_mm(breedte_mm)
+                        hoogte_cm = prijs_cm_van_mm(hoogte_mm)
+
+                        matrix_prijs = None
+                        if hoogte_cm in matrix_df.index and breedte_cm in matrix_df.columns:
+                            matrix_prijs = matrix_df.loc[hoogte_cm, breedte_cm]
 
                         rows.append({
                             "Originele regel": line,
-                            "Stof (raw)": stof_raw,
-                            "Stofgroep": normaliseer_stof(stof_raw),
-                            "Breedte prijs (cm)": prijs_cm_van_mm(breedte_mm),
-                            "Hoogte prijs (cm)": prijs_cm_van_mm(hoogte_mm),
-                            "Factuurprijs": float(match.group("prijs").replace(",", "."))
+                            "Breedte prijs (cm)": breedte_cm,
+                            "Hoogte prijs (cm)": hoogte_cm,
+                            "Factuurprijs": float(match.group("prijs").replace(",", ".")),
+                            "Matrixprijs": matrix_prijs
                         })
 
-    st.subheader("Cosa-gordijnregels (genormaliseerd)")
+    st.subheader("Cosa-gordijnen met matrixprijs")
     st.table(rows)

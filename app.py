@@ -11,7 +11,7 @@ from io import BytesIO
 # =========================
 st.set_page_config(page_title="Raamdecoratie.com Facturen Checker", layout="wide")
 
-st.title("🪟 Raamdecoratie.com – Facturen checker")
+st.title("Raamdecoratie.com – Facturen checker")
 
 # =========================
 # Stap 1 – Leverancier

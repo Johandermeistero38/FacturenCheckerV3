@@ -5,12 +5,12 @@ import math
 import pandas as pd
 
 st.title("FacturenCheckerV3")
-st.write("Stap 8: Prijsverschillen per plooi")
+st.write("Prijscontrole Cosa – automatische plooi-keuze")
 
 uploaded_pdf = st.file_uploader("Upload een factuur (PDF)", type=["pdf"])
 uploaded_matrix = st.file_uploader("Upload Cosa prijsmatrix (Excel)", type=["xlsx"])
 
-TOLERANTIE = 0.50
+TOLERANTIE = 0.50  # euro
 
 LINE_REGEX = re.compile(
     r"GORDIJN Curtain\s+"
@@ -33,11 +33,11 @@ def status_icoon(verschil):
 if uploaded_pdf and uploaded_matrix:
     st.success("PDF en matrix succesvol geüpload")
 
+    # Alle matrix sheets inlezen
     excel = pd.ExcelFile(uploaded_matrix)
-    sheets = excel.sheet_names
-
     matrices = {}
-    for sheet in sheets:
+
+    for sheet in excel.sheet_names:
         df = pd.read_excel(uploaded_matrix, sheet_name=sheet)
         df = df.rename(columns={df.columns[0]: "Hoogte"}).set_index("Hoogte")
         matrices[sheet] = df
@@ -62,28 +62,35 @@ if uploaded_pdf and uploaded_matrix:
                 hoogte_cm = prijs_cm_van_mm(int(match.group("hoogte")))
                 factuurprijs = round(float(match.group("prijs").replace(",", ".")), 2)
 
-                row = {
-                    "Originele regel": line,
-                    "Breedte (cm)": breedte_cm,
-                    "Hoogte (cm)": hoogte_cm,
-                    "Factuurprijs": factuurprijs,
-                }
+                beste_plooi = None
+                beste_matrixprijs = None
+                beste_verschil = None
 
-                for sheet, df in matrices.items():
-                    matrixprijs = None
-                    verschil = None
-
+                for plooi, df in matrices.items():
                     if hoogte_cm in df.index and breedte_cm in df.columns:
                         prijs = df.loc[hoogte_cm, breedte_cm]
                         if pd.notna(prijs):
                             matrixprijs = round(float(prijs), 2)
                             verschil = round(factuurprijs - matrixprijs, 2)
 
-                    row[f"{sheet} prijs"] = matrixprijs
-                    row[f"{sheet} verschil"] = verschil
-                    row[f"{sheet} status"] = status_icoon(verschil)
+                            if (
+                                beste_verschil is None
+                                or abs(verschil) < abs(beste_verschil)
+                            ):
+                                beste_plooi = plooi
+                                beste_matrixprijs = matrixprijs
+                                beste_verschil = verschil
 
-                rows.append(row)
+                rows.append({
+                    "Originele regel": line,
+                    "Breedte prijs (cm)": breedte_cm,
+                    "Hoogte prijs (cm)": hoogte_cm,
+                    "Factuurprijs (€)": factuurprijs,
+                    "Gekozen plooi": beste_plooi,
+                    "Matrixprijs (€)": beste_matrixprijs,
+                    "Verschil (€)": beste_verschil,
+                    "Status": status_icoon(beste_verschil),
+                })
 
-    st.subheader("Prijscontrole Cosa gordijnen")
+    st.subheader("Controle-resultaat Cosa gordijnen")
     st.dataframe(pd.DataFrame(rows), use_container_width=True)

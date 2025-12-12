@@ -1,17 +1,17 @@
 import streamlit as st
 import pdfplumber
 import re
+import math
 
 st.title("FacturenCheckerV3")
 
-st.write("Stap 4: Cosa-regels ontleden")
+st.write("Stap 5: Afmetingen omzetten en afronden")
 
 uploaded_file = st.file_uploader(
     "Upload een factuur (PDF)",
     type=["pdf"]
 )
 
-# Regex om onderdelen uit de regel te halen
 LINE_REGEX = re.compile(
     r"GORDIJN Curtain\s+"
     r"(?P<breedte>\d+)\s*x\s*(?P<hoogte>\d+)\s*mm,\s*"
@@ -20,10 +20,15 @@ LINE_REGEX = re.compile(
     r"(?P<prijs>\d+,\d+)"
 )
 
+def prijs_cm_van_mm(mm: int) -> int:
+    cm = mm / 10
+    cm_naar_boven = math.ceil(cm)
+    return math.ceil(cm_naar_boven / 10) * 10
+
 if uploaded_file is not None:
     st.success("PDF succesvol geüpload")
 
-    parsed_rows = []
+    rows = []
 
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
@@ -35,17 +40,18 @@ if uploaded_file is not None:
                 if "GORDIJN Curtain" in line and "Cosa" in line:
                     match = LINE_REGEX.search(line)
                     if match:
-                        parsed_rows.append({
+                        breedte_mm = int(match.group("breedte"))
+                        hoogte_mm = int(match.group("hoogte"))
+
+                        rows.append({
                             "Originele regel": line,
-                            "Breedte (mm)": int(match.group("breedte")),
-                            "Hoogte (mm)": int(match.group("hoogte")),
+                            "Breedte (mm)": breedte_mm,
+                            "Hoogte (mm)": hoogte_mm,
+                            "Breedte prijs (cm)": prijs_cm_van_mm(breedte_mm),
+                            "Hoogte prijs (cm)": prijs_cm_van_mm(hoogte_mm),
                             "Stof (raw)": match.group("stof"),
                             "Factuurprijs": float(match.group("prijs").replace(",", "."))
                         })
 
-    st.subheader("Ontlede Cosa-gordijnregels")
-
-    if parsed_rows:
-        st.table(parsed_rows)
-    else:
-        st.warning("Geen regels succesvol ontleed.")
+    st.subheader("Cosa-gordijnregels met prijs-afmetingen")
+    st.table(rows)

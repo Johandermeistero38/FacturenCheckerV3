@@ -9,9 +9,27 @@ from io import BytesIO
 # =========================
 # App setup
 # =========================
-st.set_page_config(page_title="FacturenCheckerV3", layout="wide")
-st.title("FacturenCheckerV3")
-st.subheader("Stap A.7 – TOPPOINT prijscontrole (uitgebreid)")
+st.set_page_config(page_title="Raamdecoratie.com Facturen Checker", layout="wide")
+
+st.title("🪟 Raamdecoratie.com – Facturen checker")
+
+# =========================
+# Stap 1 – Leverancier
+# =========================
+st.header("Stap 1: Kies leverancier")
+leverancier = st.selectbox(
+    "Leverancier",
+    ["TOPPOINT"],  # later uitbreidbaar
+)
+
+# =========================
+# Stap 2 – Upload factuur
+# =========================
+st.header("Stap 2: Upload je factuur")
+uploaded_pdf = st.file_uploader(
+    "Upload factuur (PDF)",
+    type=["pdf"]
+)
 
 # =========================
 # Config
@@ -62,17 +80,27 @@ def laad_matrix_sheets(matrix_path: Path):
 
 
 # =========================
-# UI
+# Stap 3 – Verwerken
 # =========================
-leverancier = st.selectbox("Kies leverancier", ["TOPPOINT"])
-uploaded_pdf = st.file_uploader("Upload factuur (PDF)", type=["pdf"])
+result_df = None
 
 if leverancier == "TOPPOINT" and uploaded_pdf:
+    st.header("Stap 3: Verwerken factuur")
+
+    progress = st.progress(0)
+    status_text = st.empty()
+
     matrix_files = laad_matrix_bestanden()
     rows = []
 
     with pdfplumber.open(uploaded_pdf) as pdf:
-        for page in pdf.pages:
+        total_pages = len(pdf.pages)
+        gevonden_regels = 0
+
+        for i, page in enumerate(pdf.pages):
+            status_text.info(f"Verwerken pagina {i + 1} van {total_pages}…")
+            progress.progress((i + 1) / total_pages * 0.7)
+
             text = page.extract_text()
             if not text:
                 continue
@@ -81,6 +109,8 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                 match = LINE_REGEX.search(line)
                 if not match:
                     continue
+
+                gevonden_regels += 1
 
                 breedte_mm = int(match.group("breedte"))
                 hoogte_mm = int(match.group("hoogte"))
@@ -132,57 +162,58 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                     "Matrix": matrix_path.name,
                     "Breedte prijs (cm)": b_cm,
                     "Hoogte prijs (cm)": h_cm,
-
                     "Enkele plooi (€)": plooi_prijzen["Enkele plooi"],
                     "Dubbele plooi (€)": plooi_prijzen["Dubbele plooi"],
                     "Wave plooi (€)": plooi_prijzen["Wave plooi"],
                     "Ring (€)": plooi_prijzen["Ring"],
-
                     "Gekozen plooi": beste_plooi,
                     "Factuurprijs (€)": factuur_prijs,
                     "Verschil (€)": beste_verschil,
                 })
 
-    # =========================
-    # Resultaat
-    # =========================
-    st.subheader("TOPPOINT – prijscontrole resultaat")
+    progress.progress(1.0)
+    status_text.success(f"Klaar! {gevonden_regels} regels gevonden.")
     result_df = pd.DataFrame(rows)
-    st.dataframe(result_df, use_container_width=True)
 
-    # =========================
-    # Export
-    # =========================
-    if not result_df.empty:
-        st.divider()
-        st.subheader("Exporteren")
+# =========================
+# Resultaat (ingeklapt)
+# =========================
+if result_df is not None and not result_df.empty:
+    with st.expander("📊 Prijscontrole resultaat bekijken"):
+        st.dataframe(result_df, use_container_width=True)
 
-        export_name = st.text_input(
-            "Bestandsnaam (zonder extensie)",
-            value="toppoint_prijscontrole"
+# =========================
+# Stap 4 – Exporteren
+# =========================
+if result_df is not None and not result_df.empty:
+    st.header("Stap 4: Exporteren")
+
+    export_name = st.text_input(
+        "Bestandsnaam (zonder extensie)",
+        value="toppoint_prijscontrole"
+    )
+
+    export_type = st.selectbox(
+        "Export formaat",
+        ["Excel (.xlsx)", "CSV (.csv)"]
+    )
+
+    if export_type == "CSV (.csv)":
+        csv = result_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇ Download CSV",
+            data=csv,
+            file_name=f"{export_name}.csv",
+            mime="text/csv"
         )
+    else:
+        buffer = BytesIO()
+        result_df.to_excel(buffer, index=False)
+        buffer.seek(0)
 
-        export_type = st.selectbox(
-            "Export formaat",
-            ["Excel (.xlsx)", "CSV (.csv)"]
+        st.download_button(
+            "⬇ Download Excel",
+            data=buffer,
+            file_name=f"{export_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-        if export_type == "CSV (.csv)":
-            csv = result_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download CSV",
-                data=csv,
-                file_name=f"{export_name}.csv",
-                mime="text/csv"
-            )
-        else:
-            buffer = BytesIO()
-            result_df.to_excel(buffer, index=False)
-            buffer.seek(0)
-
-            st.download_button(
-                "Download Excel",
-                data=buffer,
-                file_name=f"{export_name}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )

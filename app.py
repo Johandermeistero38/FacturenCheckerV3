@@ -6,21 +6,17 @@ import math
 from pathlib import Path
 from io import BytesIO
 
+# =========================
+# App setup
+# =========================
 st.set_page_config(page_title="FacturenCheckerV3", layout="wide")
 st.title("FacturenCheckerV3")
 st.subheader("Stap A.6 – TOPPOINT volledige prijscontrole")
 
-# -------------------------
+# =========================
 # Config
-# -------------------------
+# =========================
 BASE_DIR = Path("suppliers/toppoint/gordijnen")
-
-PLOOIEN = [
-    "Enkele plooi",
-    "Dubbele plooi",
-    "Wave plooi",
-    "Ring"
-]
 
 LINE_REGEX = re.compile(
     r"GORDIJN Curtain\s+"
@@ -28,9 +24,9 @@ LINE_REGEX = re.compile(
     r"(?P<stof>.+?)\s+\d+\s+(?P<prijs>\d+,\d+)"
 )
 
-# -------------------------
+# =========================
 # Helpers
-# -------------------------
+# =========================
 def prijs_cm_van_mm(mm: int) -> int:
     cm = mm / 10
     return math.ceil(cm / 10) * 10
@@ -39,13 +35,23 @@ def prijs_cm_van_mm(mm: int) -> int:
 def normaliseer_stof(tekst: str) -> str:
     """
     Stof = alles vóór het eerste cijfer
+    'inbetween' en varianten worden genegeerd
     """
     tekst = tekst.lower()
+
+    # verwijder bekende voorvoegsels
+    tekst = tekst.replace("inbetween", "")
+    tekst = tekst.replace("in between", "")
+
+    # alles vóór eerste cijfer
     tekst = re.split(r"\d", tekst)[0]
+
     return tekst.strip()
 
 
-def status_icon(verschil: float) -> str:
+def status_icon(verschil: float | None) -> str:
+    if verschil is None:
+        return "❓"
     if abs(verschil) < 0.01:
         return "✅"
     elif verschil > 0:
@@ -54,7 +60,10 @@ def status_icon(verschil: float) -> str:
         return "🟢"
 
 
-def laad_matrices():
+def laad_matrix_bestanden():
+    """
+    Laadt alle price matrices uit de TOPPOINT map
+    """
     matrices = {}
     for file in BASE_DIR.glob("*price matrix.xlsx"):
         naam = file.stem.replace(" price matrix", "").lower()
@@ -62,28 +71,26 @@ def laad_matrices():
     return matrices
 
 
-def laad_matrix_bestanden(matrix_path: Path):
+def laad_matrix_sheets(matrix_path: Path):
     excel = pd.ExcelFile(matrix_path)
-    matrices = {}
+    sheets = {}
 
     for sheet in excel.sheet_names:
         df = pd.read_excel(excel, sheet_name=sheet)
         df = df.rename(columns={df.columns[0]: "Hoogte"}).set_index("Hoogte")
-        matrices[sheet] = df
+        sheets[sheet] = df
 
-    return matrices
+    return sheets
 
 
-# -------------------------
+# =========================
 # UI
-# -------------------------
+# =========================
 leverancier = st.selectbox("Kies leverancier", ["TOPPOINT"])
-
 uploaded_pdf = st.file_uploader("Upload factuur (PDF)", type=["pdf"])
 
 if leverancier == "TOPPOINT" and uploaded_pdf:
-    matrix_bestanden = laad_matrices()
-
+    matrix_files = laad_matrix_bestanden()
     rows = []
 
     with pdfplumber.open(uploaded_pdf) as pdf:
@@ -104,18 +111,26 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                 stof_raw = match.group("stof")
                 stof_norm = normaliseer_stof(stof_raw)
 
-                matrix_file = matrix_bestanden.get(stof_norm)
+                matrix_path = matrix_files.get(stof_norm)
 
-                if not matrix_file:
+                # Geen matrix gevonden
+                if not matrix_path:
                     rows.append({
                         "Originele regel": line,
                         "Stof": stof_raw,
-                        "Matrix gevonden": False,
-                        "Status": "❓"
+                        "Matrix": None,
+                        "Breedte prijs (cm)": None,
+                        "Hoogte prijs (cm)": None,
+                        "Gekozen plooi": None,
+                        "Factuurprijs (€)": round(factuur_prijs, 2),
+                        "Matrixprijs (€)": None,
+                        "Verschil (€)": None,
+                        "Status": status_icon(None),
+                        "Matrix gevonden": False
                     })
                     continue
 
-                matrices = laad_matrix_bestanden(matrix_file)
+                matrices = laad_matrix_sheets(matrix_path)
 
                 b_cm = prijs_cm_van_mm(breedte_mm)
                 h_cm = prijs_cm_van_mm(hoogte_mm)
@@ -139,26 +154,27 @@ if leverancier == "TOPPOINT" and uploaded_pdf:
                 rows.append({
                     "Originele regel": line,
                     "Stof": stof_raw,
-                    "Matrix": matrix_file.name,
+                    "Matrix": matrix_path.name,
                     "Breedte prijs (cm)": b_cm,
                     "Hoogte prijs (cm)": h_cm,
                     "Gekozen plooi": beste_plooi,
                     "Factuurprijs (€)": round(factuur_prijs, 2),
                     "Matrixprijs (€)": beste_prijs,
                     "Verschil (€)": beste_verschil,
-                    "Status": status_icon(beste_verschil)
+                    "Status": status_icon(beste_verschil),
+                    "Matrix gevonden": True
                 })
 
-    # -------------------------
+    # =========================
     # Resultaat
-    # -------------------------
+    # =========================
     st.subheader("TOPPOINT – prijscontrole resultaat")
     result_df = pd.DataFrame(rows)
     st.dataframe(result_df, use_container_width=True)
 
-    # -------------------------
+    # =========================
     # Export
-    # -------------------------
+    # =========================
     if not result_df.empty:
         st.divider()
         st.subheader("Exporteren")

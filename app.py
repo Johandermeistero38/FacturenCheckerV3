@@ -3,7 +3,7 @@ import pdfplumber
 
 st.title("FacturenCheckerV3")
 
-st.write("Stap 2: PDF uploaden en tekst uitlezen")
+st.write("Stap 3: Alleen Cosa-gordijnregels filteren")
 
 uploaded_file = st.file_uploader(
     "Upload een factuur (PDF)",
@@ -13,14 +13,23 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
     st.success("PDF succesvol geüpload")
 
-    all_text = ""
+    cosa_lines = []
 
     with pdfplumber.open(uploaded_file) as pdf:
-        for i, page in enumerate(pdf.pages):
-            page_text = page.extract_text()
-            if page_text:
-                all_text += f"\n--- PAGINA {i + 1} ---\n"
-                all_text += page_text
+        for page in pdf.pages:
+            text = page.extract_text()
+            if not text:
+                continue
 
-    st.subheader("Uitlezen resultaat (ruwe tekst)")
-    st.text(all_text)
+            for line in text.splitlines():
+                # Alleen regels met GORDIJN Curtain én Cosa
+                if "GORDIJN Curtain" in line and "Cosa" in line:
+                    cosa_lines.append(line)
+
+    st.subheader("Gevonden Cosa-gordijnregels")
+
+    if cosa_lines:
+        for l in cosa_lines:
+            st.text(l)
+    else:
+        st.warning("Geen Cosa-gordijnregels gevonden.")

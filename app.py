@@ -1,51 +1,76 @@
 import streamlit as st
+import pdfplumber
 import pandas as pd
 import os
+import re
 
 st.title("FacturenCheckerV3")
-st.write("Stap A.4 – Leverancier & matrixen laden")
+st.write("Stap A.5 – Factuurstof koppelen aan TOPPOINT matrixen")
 
 # ---------------------------
-# Leverancier kiezen
+# Leverancier
 # ---------------------------
-supplier = st.selectbox(
-    "Kies leverancier",
-    ["TOPPOINT"]
-)
+supplier = st.selectbox("Kies leverancier", ["TOPPOINT"])
 
-if supplier == "TOPPOINT":
-    MATRIX_DIR = "suppliers/toppoint/gordijnen"
+# ---------------------------
+# Matrixen laden
+# ---------------------------
+MATRIX_DIR = "suppliers/toppoint/gordijnen"
+matrices = {}
 
-    if not os.path.exists(MATRIX_DIR):
-        st.error("Matrix map niet gevonden")
-        st.stop()
+for filename in os.listdir(MATRIX_DIR):
+    if filename.lower().endswith(".xlsx"):
+        key = filename.lower().replace(" price matrix.xlsx", "").strip()
+        matrices[key] = filename
 
-    matrices = {}
+# ---------------------------
+# Stof normaliseren
+# ---------------------------
+def normaliseer_stof_toppoint(stof_raw: str) -> str:
+    stof = stof_raw.lower()
+    stof = stof.replace("inbetween", "")
+    stof = "".join(c for c in stof if not c.isdigit())
+    stof = stof.replace(",", " ").strip()
+    woorden = stof.split()
+    if len(woorden) >= 2:
+        return " ".join(woorden[:2])
+    elif woorden:
+        return woorden[0]
+    return ""
 
-    for filename in os.listdir(MATRIX_DIR):
-        if not filename.lower().endswith(".xlsx"):
-            continue
+# ---------------------------
+# Factuur upload
+# ---------------------------
+uploaded_pdf = st.file_uploader("Upload factuur (PDF)", type=["pdf"])
 
-        # Maak stof-sleutel uit bestandsnaam
-        stof_key = (
-            filename
-            .lower()
-            .replace(" price matrix.xlsx", "")
-            .strip()
-        )
+if uploaded_pdf:
+    rows = []
 
-        path = os.path.join(MATRIX_DIR, filename)
+    with pdfplumber.open(uploaded_pdf) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if not text:
+                continue
 
-        try:
-            excel = pd.ExcelFile(path)
-            matrices[stof_key] = excel.sheet_names
-        except Exception as e:
-            st.warning(f"Kon {filename} niet laden: {e}")
+            for line in text.splitlines():
+                if "GORDIJN Curtain" not in line:
+                    continue
 
-    st.subheader("Gevonden TOPPOINT gordijn-matrixen")
-    st.write(
-        {
-            stof: sheets
-            for stof, sheets in sorted(matrices.items())
-        }
-    )
+                # probeer stofdeel te pakken
+                match = re.search(r",\s*(.+?)\s+\d+,\d+", line)
+                if not match:
+                    continue
+
+                stof_raw = match.group(1)
+                stof_norm = normaliseer_stof_toppoint(stof_raw)
+
+                rows.append({
+                    "Originele regel": line,
+                    "Stof (factuur)": stof_raw,
+                    "Stof (genormaliseerd)": stof_norm,
+                    "Matrix gevonden": stof_norm in matrices,
+                    "Matrix bestand": matrices.get(stof_norm),
+                })
+
+    st.subheader("Factuurstof → matrix koppeling")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
